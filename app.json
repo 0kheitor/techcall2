@@ -16,12 +16,17 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.heit00.techcall",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -33,7 +38,12 @@
           "locationAlwaysAndWhenInUsePermission": "Permita o acesso àlocalização para registrar o local do chamado."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "29c04bdc-670a-4b02-8276-7392dd9dfec3"
+      }
+    },
+    "owner": "heit00"
   }
 }
-

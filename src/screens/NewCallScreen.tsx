@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, ALUNO_ID } from '../firebase/config';
 
 import {
@@ -15,6 +14,9 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
+
+const SLA_SECONDS = 10; // em produção, substituir por um valor real
 
 export default function NewCallScreen({ navigation }: any) {
   // Estados: "caixinhas" que guardam o que o usuário digita ou a foto que escolhe
@@ -22,7 +24,7 @@ export default function NewCallScreen({ navigation }: any) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   // Endereço já convertido, pronto para exibir na tela
   const [address, setAddress] = useState<string | null>(null);
-// Controla o texto &quot;Buscando localização...&quot; enquanto aguardamos o GPS
+  // Controla o texto "Buscando localização..." enquanto aguardamos o GPS
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -31,19 +33,19 @@ export default function NewCallScreen({ navigation }: any) {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permissão negada', 'Precisamos da localização para o check-in.');
-    return;
+      return;
     }
     setLoadingLocation(true);
-  try {
-    // 2. Verifica se o GPS do aparelho está ligado
+    try {
+      // 2. Verifica se o GPS do aparelho está ligado
       const gpsAtivo = await Location.hasServicesEnabledAsync();
       if (!gpsAtivo) {
-        Alert.alert('GPS desligado', 'Ative a localização do aparelho e tentenovamente.');
+        Alert.alert('GPS desligado', 'Ative a localização do aparelho e tente novamente.');
         return;
       }
-    // 3. Captura latitude e longitude atuais
+      // 3. Captura latitude e longitude atuais
       const position = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.Balanced,
       });
       // 4. Reverse Geocoding: transforma coordenadas em endereço legível
       const [local] = await Location.reverseGeocodeAsync({
@@ -51,16 +53,16 @@ export default function NewCallScreen({ navigation }: any) {
         longitude: position.coords.longitude,
       });
       if (local) {
-        const enderecoFormatado = `${local.street ?? 'Endereço nãoidentificado'}, ${local.city ?? '} - ${local.region ?? '}`;
+        const enderecoFormatado = `${local.street ?? 'Endereço não identificado'}, ${local.city ?? ''} - ${local.region ?? ''}`;
         setAddress(enderecoFormatado);
       } else {
         setAddress('Endereço não encontrado para esta coordenada.');
       }
     } catch (error) {
-        Alert.alert('Erro', 'Não foi possível obter a localização. Tentenovamente.');
-    }finally {
+      Alert.alert('Erro', 'Não foi possível obter a localização. Tente novamente.');
+    } finally {
       setLoadingLocation(false);
-      }
+    }
   }
 
   // Função para tirar foto com a câmera
@@ -91,7 +93,8 @@ export default function NewCallScreen({ navigation }: any) {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      Alert.alert('Permissão negada', 'Precisamos acessar suas fotos.');      return;
+      Alert.alert('Permissão negada', 'Precisamos acessar suas fotos.');
+      return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -107,25 +110,54 @@ export default function NewCallScreen({ navigation }: any) {
 
   async function handleCreateCall() {
     setSaving(true);
+
     try {
-      await addDoc(collection(db, 'alunos', ALUNO_ID, 'chamados'), {
-      description,
-      photoUri,
-      address,
-      status: 'aberto',
-      criadoEm: serverTimestamp(),
-    });
+      const docRef = await addDoc(collection(db, 'alunos', ALUNO_ID, 'chamados'), {
+        description,
+        photoUri,
+        address,
+        status: 'aberto',
+        criadoEm: serverTimestamp(),
+      });
+
+      // Pede permissão para enviar notificações
+      const permission = await Notifications.requestPermissionsAsync();
+
+      if (permission.granted) {
+        // Agenda a notificação de alerta do SLA
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'TechCall - Alerta de SLA',
+            body: 'O prazo de atendimento de um chamado expirou!',
+            data: { chamadoId: docRef.id },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: SLA_SECONDS,
+          },
+        });
+
+        // Salva o id da notificação no Firestore para poder cancelá-la se atendido
+        await updateDoc(docRef, { slaNotificationId: notificationId });
+      } else {
+        // Orienta o usuário caso a permissão tenha sido negada
+        Alert.alert(
+          'Permissão de Notificação Negada',
+          'Você não receberá alertas de SLA. Para ativar, habilite as notificações nas configurações do seu celular.'
+        );
+      }
+
       Alert.alert('Sucesso', 'Chamado registrado!');
       setDescription('');
       setPhotoUri(null);
       setAddress(null);
       navigation.navigate('CallList');
     } catch (error) {
-    Alert.alert('Erro', 'Não foi possível salvar o chamado. Tente novamente.');
+      Alert.alert('Erro', 'Não foi possível salvar o chamado. Tente novamente.');
     } finally {
-    setSaving(false);
+      setSaving(false);
     }
-}
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -157,20 +189,20 @@ export default function NewCallScreen({ navigation }: any) {
 
       <Text style={styles.label}>Localização do chamado</Text>
       {loadingLocation ? (
-      <Text style={styles.placeholderText}>Buscando localização...</Text>
+        <Text style={styles.placeholderText}>Buscando localização...</Text>
       ) : address ? (
-      <Text style={styles.addressText}>{address}</Text>
+        <Text style={styles.addressText}>{address}</Text>
       ) : (
-      <Text style={styles.placeholderText}>Nenhuma localização registrada</Text>
+        <Text style={styles.placeholderText}>Nenhuma localização registrada</Text>
       )}
       <TouchableOpacity
-      style={[styles.button, styles.locationButton]}
-      onPress={handleGetLocation}
-      disabled={loadingLocation}
+        style={[styles.button, styles.locationButton]}
+        onPress={handleGetLocation}
+        disabled={loadingLocation}
       >
-      <Text style={styles.buttonText}>
-      {loadingLocation ? 'Buscando...' : 'Registrar localização'}
-      </Text>
+        <Text style={styles.buttonText}>
+          {loadingLocation ? 'Buscando...' : 'Registrar localização'}
+        </Text>
       </TouchableOpacity>
 
       <View style={styles.buttonRow}>
@@ -182,8 +214,7 @@ export default function NewCallScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
       <TouchableOpacity
-        style={[styles.button, styles.confirmButton, (!description || saving) &&
-        styles.disabledButton]}
+        style={[styles.button, styles.confirmButton, (!description || saving) && styles.disabledButton]}
         disabled={!description || saving}
         onPress={handleCreateCall}>
         <Text style={styles.buttonText}>{saving ? 'Salvando...' : 'Criar Chamado'}</Text>

@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import * as Notifications from 'expo-notifications';
 import { db, ALUNO_ID } from '../firebase/config';
 
 type Chamado = {
@@ -16,6 +17,7 @@ type Chamado = {
   photoUri?: string | null;
   address?: string | null;
   status: string;
+  slaNotificationId?: string;
 };
 
 export default function CallDetailScreen({ route }: any) {
@@ -67,6 +69,15 @@ export default function CallDetailScreen({ route }: any) {
         status: novoStatus,
       });
 
+      // Se o chamado foi atendido a tempo,
+      // cancela o alerta de SLA que ainda não disparou
+      if (
+        (novoStatus === 'atendendo' || novoStatus === 'em andamento' || novoStatus === 'cancelado') &&
+        chamado?.slaNotificationId
+      ) {
+        await Notifications.cancelScheduledNotificationAsync(chamado.slaNotificationId);
+      }
+
       setChamado((atual) =>
         atual
           ? {
@@ -79,7 +90,7 @@ export default function CallDetailScreen({ route }: any) {
       Alert.alert('Sucesso', 'Status atualizado com sucesso.');
     } catch (error) {
       console.log('Erro ao atualizar status:', error);
-      Alert.alert('Erro', 'Não foi possível atualizar o status.');
+      Alert.alert('Erro', 'Não foi possível atualizar o status do chamado.');
     }
   }
 
@@ -100,58 +111,68 @@ export default function CallDetailScreen({ route }: any) {
   }
 
   return (
-  <View style={styles.screen}>
-    <Text style={styles.title}>Detalhes do Chamado</Text>
+    <View style={styles.screen}>
+      <Text style={styles.title}>Detalhes do Chamado</Text>
 
-    <View style={styles.imageContainer}>
-      {chamado.photoUri ? (
-        <Image
-          source={{ uri: chamado.photoUri }}
-          style={styles.image}
-          resizeMode="cover"
-        />
-      ) : (
-        <Text style={styles.noImageText}>
-          Nenhuma imagem anexada
+      <View style={styles.imageContainer}>
+        {chamado.photoUri ? (
+          <Image
+            source={{ uri: chamado.photoUri }}
+            style={styles.image}
+            resizeMode="cover"
+          />
+        ) : (
+          <Text style={styles.noImageText}>
+            Nenhuma imagem anexada
+          </Text>
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>Descrição</Text>
+        <Text style={styles.description}>{chamado.description}</Text>
+
+        <Text style={styles.label}>Endereço</Text>
+        <Text style={styles.info}>
+          {chamado.address || 'Não informado'}
         </Text>
-      )}
+
+        <Text style={styles.label}>Status</Text>
+        <Text style={styles.status}>{chamado.status}</Text>
+      </View>
+
+      {chamado.status !== 'resolvido' && chamado.status !== 'cancelado' ? (
+        <Text style={styles.actionTitle}>Alterar status</Text>
+      ) : null}
+
+      {chamado.status === 'aberto' ? (
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => mudarStatus('cancelado')}
+        >
+          <Text style={styles.buttonText}>Cancelar Chamado</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {chamado.status === 'aberto' ? (
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => mudarStatus('em andamento')}
+        >
+          <Text style={styles.buttonText}>Iniciar Atendimento</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {chamado.status === 'em andamento' || chamado.status === 'aberto' ? (
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => mudarStatus('resolvido')}
+        >
+          <Text style={styles.buttonText}>Concluir Atendimento</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
-
-    <View style={styles.card}>
-      <Text style={styles.label}>Descrição</Text>
-      <Text style={styles.description}>{chamado.description}</Text>
-
-      <Text style={styles.label}>Endereço</Text>
-      <Text style={styles.info}>
-        {chamado.address || 'Não informado'}
-      </Text>
-
-      <Text style={styles.label}>Status</Text>
-      <Text style={styles.status}>{chamado.status}</Text>
-    </View>
-    
-    {chamado.status !== 'resolvido' ? <Text style={styles.actionTitle}>Alterar status</Text> : ''}
-    
-
-    {chamado.status === 'aberto' ? <TouchableOpacity
-      style={styles.button}
-      onPress={() => mudarStatus('em andamento')}
-    >
-      <Text style={styles.buttonText}>Em andamento</Text>
-    </TouchableOpacity>: ''}
-
-    
-    {chamado.status === 'em andamento' || chamado.status === 'aberto'? <TouchableOpacity
-      style={styles.button}
-      onPress={() => mudarStatus('resolvido')}
-    >
-
-    <Text style={styles.buttonText}>Resolvido</Text>
-    </TouchableOpacity>:'' }    
-    
-  </View>
-);
-
+  );
 }
 
 const styles = StyleSheet.create({
@@ -231,24 +252,23 @@ const styles = StyleSheet.create({
   },
 
   imageContainer: {
-  width: '100%',
-  height: 220,
-  backgroundColor: '#e0e0e0',
-  borderRadius: 10,
-  marginBottom: 20,
-  overflow: 'hidden',
-  alignItems: 'center',
-  justifyContent: 'center',
-},
+    width: '100%',
+    height: 220,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 10,
+    marginBottom: 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-image: {
-  width: '100%',
-  height: '100%',
-},
+  image: {
+    width: '100%',
+    height: '100%',
+  },
 
-noImageText: {
-  color: '#777',
-  fontSize: 16,
-},
-
+  noImageText: {
+    color: '#777',
+    fontSize: 16,
+  },
 });
